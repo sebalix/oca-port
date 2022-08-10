@@ -56,7 +56,7 @@ from .port_addon_pr import PortAddonPullRequest
 @click.option("--upstream-org", default="OCA", show_default=True,
               help="Upstream organization name.")
 @click.option("--upstream", default="origin", show_default=True, required=True,
-              help="Git remote from which source and target branches are fetched.")
+              help="Git remote from which source and target branches are fetched by default.")
 @click.option("--repo-name", help="Repository name, eg. server-tools.")
 @click.option("--fork",
               help="Git remote on which branches containing ported commits are pushed.")
@@ -92,13 +92,12 @@ def main(
                 f"{bc.DIM}--user-org{bc.END} option."
             )
             raise click.ClickException(error_msg)
-    if len(from_branch.split("/")) > 1:
-        remote, from_branch = from_branch.split("/")
-        _check_remote(repo_name, repo, remote)
-    else:
-        remote = upstream
-    from_branch = misc.Branch(repo, from_branch, remote)
-    to_branch = misc.Branch(repo, to_branch, upstream)
+    try:
+        # Parse source and target branches
+        from_branch = misc.Branch(repo, from_branch, default_remote=upstream)
+        to_branch = misc.Branch(repo, to_branch, default_remote=upstream)
+    except ValueError as exc:
+        _check_remote(repo_name, *exc.args)
     storage = misc.InputStorage(repo.working_dir)
     _fetch_branches(from_branch, to_branch, verbose=verbose)
     _check_branches(from_branch, to_branch)
@@ -127,7 +126,7 @@ def _check_remote(repo_name, repo, remote, raise_exc=True):
             "\t# This mode requires an SSH key in the GitHub account\n"
             f"\t{bc.DIM}$ git remote add {remote} "
             f"git@github.com:{remote}/{repo_name}.git{bc.END}\n"
-            " Or:\n"
+            "   Or:\n"
             "\t# This will require to enter user/password each time\n"
             f"\t{bc.DIM}$ git remote add {remote} "
             f"https://github.com/{remote}/{repo_name}.git{bc.END}"
