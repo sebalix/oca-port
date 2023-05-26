@@ -39,6 +39,10 @@ class Settings:
             flag to not wait for user input and to return a error code to the shell.
             Returns 100 if an addon could be migrated, 110 if pull requests/commits
             could be ported, 0 if the history of the addon is the same on both branches.
+        output:
+            returns a parsable output. This implies the 'non-interactive' mode
+            defined above but without returning any special exit code.
+            Possible values: 'json'
         no_cache:
             flag to disable the user's cache
         clear_cache:
@@ -56,9 +60,12 @@ class Settings:
     upstream: str = "origin"
     verbose: bool = False
     non_interactive: bool = False
+    output: str = None
     no_cache: bool = False
     clear_cache: bool = False
     cli: bool = False  # Not documented, should not be used outside of the CLI
+
+    _available_outputs = ("json",)
 
     def __post_init__(self):
         # Handle with repo_path and repo_name
@@ -90,8 +97,15 @@ class Settings:
         except ValueError as exc:
             if exc.args[1] not in self.repo.remotes:
                 raise RemoteBranchValueError(self.repo_name, exc.args[1]) from exc
-        # Force non-interactive mode is we are not in CLI mode
+        # Force non-interactive mode:
+        #   - if we are not in CLI mode
         if not self.cli:
+            self.non_interactive = True
+        #   - if an output has been defined
+        if self.output:
+            if self.output.lower() not in self._available_outputs:
+                outputs = ", ".join(self._available_outputs)
+                raise ValueError(f"Supported outputs are: {outputs}")
             self.non_interactive = True
 
 

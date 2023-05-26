@@ -76,6 +76,14 @@ from .utils.settings import ForkValueError, RemoteBranchValueError, Settings
 @click.option(
     "--non-interactive", is_flag=True, help="Disable all interactive prompts."
 )
+@click.option(
+    "--output",
+    help=(
+        "Returns the result in a given format. "
+        "This implies the `--non-interactive` option automatically. "
+        "Possibles values are: 'json'."
+    ),
+)
 @click.option("--no-cache", is_flag=True, help="Disable user's cache.")
 @click.option("--clear-cache", is_flag=True, help="Clear the user's cache.")
 def main(
@@ -89,6 +97,7 @@ def main(
     user_org: str,
     verbose: bool,
     non_interactive: bool,
+    output: str,
     no_cache: bool,
     clear_cache: bool,
 ):
@@ -120,6 +129,7 @@ def main(
             user_org=user_org,
             verbose=verbose,
             non_interactive=non_interactive,
+            output=output,
             no_cache=no_cache,
             clear_cache=clear_cache,
             cli=True,
@@ -134,8 +144,8 @@ def main(
     except RemoteBranchValueError as exc:
         error_msg = prepare_remote_error_msg(*exc.args)
         raise click.ClickException(error_msg) from exc
-    except ValueError:
-        raise
+    except ValueError as exc:
+        raise click.ClickException(error_msg) from exc
     # Run the app
     try:
         app.run()
@@ -177,6 +187,7 @@ class App(Output):
         upstream: str = "origin",
         verbose: bool = False,
         non_interactive: bool = False,
+        output: str = None,
         no_cache: bool = False,
         clear_cache: bool = False,
         cli: bool = False,
@@ -193,6 +204,7 @@ class App(Output):
             user_org=user_org,
             verbose=verbose,
             non_interactive=non_interactive,
+            output=output,
             no_cache=no_cache,
             clear_cache=clear_cache,
             cli=cli,
@@ -237,22 +249,23 @@ class App(Output):
         self.fetch_branches()
         self.check_addon_exists_from_branch(raise_exc=True)
         # Check if some PRs could be ported
-        if not self.run_port():
+        output = self.run_port()
+        if not output:
             # If not, migrate the addon
-            self.run_migrate()
+            output = self.run_migrate()
+        if self.settings.cli and self.settings.output:
+            print(output)
         if self.settings.clear_cache:
             self.cache.clear()
+        return output
 
     def run_port(self):
         """Port pull requests of an addon (if any)."""
         # Check if the addon (folder) exists on the target branch
         #   - if it already exists, check if some PRs could be ported
         if self.check_addon_exists_to_branch():
-            PortAddonPullRequest(self).run()
-            return True
-        return False
+            return PortAddonPullRequest(self).run()
 
     def run_migrate(self):
         """Migrate an addon."""
-        MigrateAddon(self).run()
-        return True
+        return MigrateAddon(self).run()

@@ -62,6 +62,7 @@ class MigrateAddon(Output):
     def __init__(self, app):
         self.app = app
         self.settings = self.app.settings
+        self._results = {"process": "migrate", "results": None}
         self.mig_branch = g.Branch(
             self.settings.repo,
             MIG_BRANCH_NAME.format(
@@ -77,12 +78,18 @@ class MigrateAddon(Output):
                 f"{bc.DIM}to {self.settings.to_branch.name} "
                 f"blacklisted ({blacklisted}){bc.ENDD}"
             )
-            return
+            return False
         if self.settings.non_interactive:
-            # Exit with an error code if the addon is eligible for a migration
-            # User-defined exit codes should be defined between 64 and 113.
-            # Allocate 105 for 'PortAddonPullRequest'.
-            raise SystemExit(100)
+            # If an output is defined we return the result in the expected format
+            if self.settings.output:
+                self._results["results"] = True
+                return self._render_output(self.settings.output, self._results)
+            if self.settings.cli:
+                # Exit with an error code if the addon is eligible for a migration
+                # User-defined exit codes should be defined between 64 and 113.
+                # Allocate 105 for 'PortAddonPullRequest'.
+                raise SystemExit(100)
+            return True
         confirm = (
             f"Migrate {bc.BOLD}{self.settings.addon}{bc.END} "
             f"from {bc.BOLD}{self.settings.from_branch.name}{bc.END} "
@@ -91,7 +98,7 @@ class MigrateAddon(Output):
         if not click.confirm(confirm):
             self.app.storage.blacklist_addon(confirm=True)
             if not self.app.storage.dirty:
-                return
+                return False
         # Check if a migration PR already exists
         # TODO
         if not self.settings.fork:
@@ -104,7 +111,7 @@ class MigrateAddon(Output):
             if self.app.storage.dirty:
                 self.app.storage.commit()
                 self._print_tips(blacklisted=True)
-                return
+                return False
             with tempfile.TemporaryDirectory() as patches_dir:
                 self._generate_patches(patches_dir)
                 self._apply_patches(patches_dir)
@@ -115,6 +122,7 @@ class MigrateAddon(Output):
             self.settings, create_branch=False, push_branch=False
         ).run()
         self._print_tips()
+        return True
 
     def _checkout_base_branch(self):
         # Ensure to not start to work from a working branch
