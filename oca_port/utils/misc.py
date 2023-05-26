@@ -41,3 +41,12 @@ def defaultdict_from_dict(d):
     ni = nd()
     ni.update(d)
     return ni
+
+
+class Output:
+    """Mixin to handle the output of oca-port."""
+
+    def _print(self, *args, **kwargs):
+        """Like built-in 'print' method but check if oca-port is used in CLI."""
+        if self.settings.cli:
+            print(*args, **kwargs)

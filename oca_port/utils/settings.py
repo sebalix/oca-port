@@ -58,6 +58,7 @@ class Settings:
     non_interactive: bool = False
     no_cache: bool = False
     clear_cache: bool = False
+    cli: bool = False  # Not documented, should not be used outside of the CLI
 
     def __post_init__(self):
         # Handle with repo_path and repo_name
@@ -89,6 +90,9 @@ class Settings:
         except ValueError as exc:
             if exc.args[1] not in self.repo.remotes:
                 raise RemoteBranchValueError(self.repo_name, exc.args[1]) from exc
+        # Force non-interactive mode is we are not in CLI mode
+        if not self.cli:
+            self.non_interactive = True
 
 
 class ForkValueError(ValueError):

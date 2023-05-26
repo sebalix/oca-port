@@ -46,7 +46,7 @@ import git
 from . import utils
 from .migrate_addon import MigrateAddon
 from .port_addon_pr import PortAddonPullRequest
-from .utils.misc import bcolors as bc
+from .utils.misc import bcolors as bc, Output
 from .utils.settings import ForkValueError, RemoteBranchValueError, Settings
 
 
@@ -122,6 +122,7 @@ def main(
             non_interactive=non_interactive,
             no_cache=no_cache,
             clear_cache=clear_cache,
+            cli=True,
         )
     except ForkValueError as exc:
         error_msg = prepare_remote_error_msg(*exc.args)
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     main()
 
 
-class App:
+class App(Output):
     """'oca-port' application which centralizes operations."""
 
     def __init__(
@@ -178,6 +179,7 @@ class App:
         non_interactive: bool = False,
         no_cache: bool = False,
         clear_cache: bool = False,
+        cli: bool = False,
     ):
         self.settings = Settings(
             from_branch=from_branch,
@@ -193,6 +195,7 @@ class App:
             non_interactive=non_interactive,
             no_cache=no_cache,
             clear_cache=clear_cache,
+            cli=cli,
         )
         self.storage = utils.storage.InputStorage(
             self.settings.to_branch, self.settings.addon
@@ -205,7 +208,7 @@ class App:
                 continue
             remote_url = branch.repo.remotes[branch.remote].url
             if self.settings.verbose:
-                print(f"Fetch {bc.BOLD}{branch.ref()}{bc.END} from {remote_url}")
+                self._print(f"Fetch {bc.BOLD}{branch.ref()}{bc.END} from {remote_url}")
             branch.repo.remotes[branch.remote].fetch(branch.name)
 
     def _check_addon_exists(self, branch, raise_exc=False):
@@ -215,9 +218,10 @@ class App:
         if addon not in branch_addons:
             if not raise_exc:
                 return False
-            raise ValueError(
-                f"{bc.FAIL}{addon}{bc.ENDC} does not exist on {branch.ref()}"
-            )
+            error = f"{addon} does not exist on {branch.ref()}"
+            if self.settings.cli:
+                error = f"{bc.FAIL}{addon}{bc.ENDC} does not exist on {branch.ref()}"
+            raise ValueError(error)
         return True
 
     def check_addon_exists_from_branch(self, raise_exc=False):
