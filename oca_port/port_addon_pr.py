@@ -5,6 +5,7 @@ import os
 import hashlib
 import shutil
 import tempfile
+import urllib.parse
 from collections import defaultdict
 
 import click
@@ -45,6 +46,11 @@ BOT_FILES_TO_SKIP = [
     "README.rst",
     "static/description/index.html",
 ]
+
+NEW_PR_URL = (
+    "https://github.com/{from_org}/{repo_name}/compare/"
+    "{to_branch}...{to_org}:{pr_branch}?expand=1&title={title}"
+)
 
 # Fake PR for commits w/o any PR (used as fallback)
 FAKE_PR = g.PullRequest(*[""] * 6)
@@ -537,6 +543,20 @@ class PortAddonPullRequest(Output):
                 f"\t{bc.BOLD}{bc.OKCYAN}PR created =>" f"{bc.ENDC} {pr_url}{bc.END}"
             )
             return pr_url
+        # Invite the user to open the PR on its own
+        pr_title_encoded = urllib.parse.quote(pr_data["title"])
+        new_pr_url = NEW_PR_URL.format(
+            from_org=self.app.upstream_org,
+            repo_name=self.app.repo_name,
+            to_branch=self.app.to_branch.name,
+            to_org=self.app.destination.org,
+            pr_branch=pr_branch.name,
+            title=pr_title_encoded,
+        )
+        self._print(
+            "\nℹ️  You can still open the PR yourself there:\n" f"\t{new_pr_url}\n"
+        )
+        self._print_tips(pr_data)
 
 
 class BranchesDiff(Output):
