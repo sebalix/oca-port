@@ -23,9 +23,9 @@ class App(Output):
     Parameters:
 
         source:
-            string representation of the source branch, e.g. 'OCA/15.0'
+            string representation of the source branch, e.g. 'origin/15.0'
         target:
-            string representation of the target branch, e.g. 'OCA/16.0'
+            string representation of the target branch, e.g. 'origin/16.0'
         destination:
             string representation of the destination branch,
             e.g. 'camptocamp/16.0-addon-dev'

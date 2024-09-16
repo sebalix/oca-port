@@ -118,12 +118,11 @@ def main(
     clear_cache: bool,
     dry_run: bool,
 ):
-    """Migrate ADDON from SOURCE to TARGET or list Pull Requests to port
-        if ADDON already exists on TARGET.
+    """Migrate ADDON from SOURCE to TARGET or list Pull Requests to port.
 
         E.g.:
 
-        $ oca-port OCA/server-tools#14.0 OCA/server-tools#16.0 auditlog
+        $ oca-port origin/14.0 origin/16.0 auditlog
 
         Migration:
 
@@ -133,9 +132,6 @@ def main(
 
             The PRs are found from SOURCE commits that do not exist in TARGET.
     The user will be asked if he wants to port them.
-
-        To start the migration process, the `--destination` option must be provided in
-    order to push the resulting branch on the user's remote.
     """
     try:
         app = App(
