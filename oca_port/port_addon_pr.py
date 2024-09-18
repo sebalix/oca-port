@@ -508,7 +508,7 @@ class PortAddonPullRequest(Output):
         return {
             "draft": True,
             "title": title,
-            "head": f"{self.app.upstream_org}:{pr_branch.name}",
+            "head": f"{self.app.destination.org}:{pr_branch.name}",
             "base": self.app.to_branch.name,
             "body": body,
         }
