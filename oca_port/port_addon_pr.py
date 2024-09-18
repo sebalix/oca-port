@@ -3,6 +3,7 @@
 
 import os
 import hashlib
+import itertools
 import shutil
 import tempfile
 import urllib.parse
@@ -115,11 +116,17 @@ class PortAddonPullRequest(Output):
                 session.clear()
         return True, None
 
-    def _get_dest_branch_name(self, prs):
+    def _get_dest_branch_name(self, branches_diff):
         dest_branch_name = self.app.destination.branch
         # Define a destination branch if not set
-        if prs and not dest_branch_name:
-            h = hashlib.shake_256(prs.encode())
+        if branches_diff.commits_diff and not dest_branch_name:
+            commits_to_port = [
+                commit.hexsha
+                for commit in itertools.chain.from_iterable(
+                    branches_diff.commits_diff.values()
+                )
+            ]
+            h = hashlib.shake_256("-".join(commits_to_port).encode())
             key = h.hexdigest(3)
             dest_branch_name = PR_BRANCH_NAME.format(
                 addon=self.app.addon,
@@ -131,10 +138,9 @@ class PortAddonPullRequest(Output):
 
     def _port_pull_requests(self, branches_diff):
         """Open new Pull Requests (if it doesn't exist) on the GitHub repository."""
-        prs = "-".join(str(pr.number) for pr in branches_diff.commits_diff)
-        dest_branch_name = self._get_dest_branch_name(prs)
+        dest_branch_name = self._get_dest_branch_name(branches_diff)
         # Nothing to port
-        if not prs or not dest_branch_name:
+        if not branches_diff.commits_diff or not dest_branch_name:
             return False
         self.app.destination.branch = dest_branch_name
         # Check if destination branch exists, and create it if not
