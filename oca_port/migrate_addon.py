@@ -207,7 +207,7 @@ class MigrateAddon(Output):
             from_org=self.app.upstream_org,
             repo_name=self.app.repo_name,
             to_branch=self.app.to_branch.name,
-            to_org=self.app.destination.org,
+            to_org=self.app.destination.org or "YOUR_REMOTE",
             mig_branch=self.mig_branch.name,
             title=pr_title_encoded,
         )
@@ -226,7 +226,7 @@ class MigrateAddon(Output):
             repo_name=self.app.repo_name,
             addon=self.app.addon,
             version=self.app.target_version,
-            remote=self.app.destination.remote,
+            remote=self.app.destination.remote or "YOUR_REMOTE",
             mig_branch=self.mig_branch.name,
             mig_tasks_url=mig_tasks_url,
             new_pr_url=new_pr_url,
