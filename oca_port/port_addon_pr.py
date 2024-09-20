@@ -111,9 +111,6 @@ class PortAddonPullRequest(Output):
             if dest_branch:
                 self._commit_blacklist()
                 self._push_and_open_pr(dest_branch)
-                # Clear session data
-                session = self._init_session()
-                session.clear()
         return True, None
 
     def _get_dest_branch_name(self, branches_diff):
@@ -147,7 +144,7 @@ class PortAddonPullRequest(Output):
         dest_branch_exists = dest_branch_name in self.app.repo.heads
         base_ref = self.app.to_branch  # e.g. 'origin/14.0'
         if dest_branch_exists:
-            target_commit = self.app.repo.commit(self.app.target.branch)
+            target_commit = self.app.repo.commit(self.app.target.ref)
             dest_commit = self.app.repo.commit(dest_branch_name)
             # If target and destination branches are on the same commit we don't care
             if target_commit != dest_commit:
