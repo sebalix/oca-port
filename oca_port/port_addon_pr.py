@@ -104,13 +104,15 @@ class PortAddonPullRequest(Output):
                 # Nothing to port -> return an empty output
                 return False, self._render_output(self.app.output, {})
             return False, None
-        # Print empty line
-        self._print()
         if not self.app.dry_run:
-            dest_branch = self._port_pull_requests(branches_diff)
-            if dest_branch:
+            self._print()
+            # Set a destination branch (automatically generated if not already provided)
+            self.app.destination.branch = self._get_dest_branch_name(branches_diff)
+            # Launch the porting session
+            porting_done = self._port_pull_requests(branches_diff)
+            if porting_done:
                 self._commit_blacklist()
-                self._push_and_open_pr(dest_branch)
+                self._push_and_open_pr()
         return True, None
 
     def _get_dest_branch_name(self, branches_diff):
@@ -135,11 +137,13 @@ class PortAddonPullRequest(Output):
 
     def _port_pull_requests(self, branches_diff):
         """Open new Pull Requests (if it doesn't exist) on the GitHub repository."""
-        dest_branch_name = self._get_dest_branch_name(branches_diff)
+        # Now we have a destination branch, check if there is ongoing work on it
+        wip = self._print_wip_session()
+        dest_branch_name = self.app.destination.branch
         # Nothing to port
         if not branches_diff.commits_diff or not dest_branch_name:
-            return False
-        self.app.destination.branch = dest_branch_name
+            # Nothing to port while having WIP means the porting is done
+            return wip
         # Check if destination branch exists, and create it if not
         dest_branch_exists = dest_branch_name in self.app.repo.heads
         base_ref = self.app.to_branch  # e.g. 'origin/14.0'
@@ -153,7 +157,7 @@ class PortAddonPullRequest(Output):
                 confirm = (
                     f"Branch {bc.BOLD}{dest_branch_name}{bc.END} already exists, "
                     f"recreate it from {bc.BOLD}{self.app.to_branch.ref()}{bc.END}?\n"
-                    "(⚠️  you will lose the existing branch)"
+                    "(⚠️  you will lose ongoing work)"
                 )
                 if not click.confirm(confirm):
                     msg = "ℹ️  To resume the work from this branch, relaunch with:\n\n"
@@ -166,6 +170,8 @@ class PortAddonPullRequest(Output):
                         opts.append(f"--source-version={self.app.source_version}")
                     if dest_branch_name != self.app.target_version:
                         opts.append(f"--target-version={self.app.target_version}")
+                    if self.app.verbose:
+                        opts.append("--verbose")
                     cmd = cmd % " ".join(opts)
                     self._print(msg + cmd)
                     return False
@@ -176,6 +182,9 @@ class PortAddonPullRequest(Output):
                     self.app.repo.git.checkout(dest_commit)
                 self.app.repo.delete_head(dest_branch_name, "-f")
                 dest_branch_exists = False
+                # Clear any ongoing work from the session
+                session = self._init_session()
+                session.clear()
         if not dest_branch_exists:
             self.app.repo.git.checkout(
                 "--no-track", "-b", dest_branch_name, base_ref.ref()
@@ -219,7 +228,7 @@ class PortAddonPullRequest(Output):
                 self._handle_pr_ported(pr)
                 if pr == last_pr:
                     self._print("\t🎉 Last PR processed! 🎉")
-        return dest_branch
+        return True
 
     def _get_session_name(self):
         return f"{self.app.addon}-{self.app.destination.branch}"
@@ -289,6 +298,8 @@ class PortAddonPullRequest(Output):
         data = session.get_data()
         blacklisted = data["pull_requests"].setdefault("blacklisted", {})
         for pr in blacklisted.values():
+            if self.app.storage.is_pr_blacklisted(pr["number"]):
+                continue
             self.app.storage.blacklist_pr(pr["number"], reason=pr["reason"])
         if self.app.storage.dirty:
             pr_refs = ", ".join([str(pr["number"]) for pr in blacklisted.values()])
@@ -296,7 +307,37 @@ class PortAddonPullRequest(Output):
                 msg=f"oca-port: blacklist PR(s) {pr_refs} for {self.app.addon}"
             )
 
-    def _push_and_open_pr(self, dest_branch):
+    def _print_wip_session(self):
+        session = self._init_session()
+        data = session.get_data()
+        wip = False
+        if data["pull_requests"]:
+            self._print(
+                f"ℹ️  Existing session for branch "
+                f"{bc.BOLD}{self.app.destination.branch}{bc.END}:"
+            )
+            wip = True
+        # Ported PRs
+        if data["pull_requests"]["ported"]:
+            self._print("\t✅ Ported PRs:")
+        for pr_data in data["pull_requests"]["ported"].values():
+            self._print(
+                f"\t- {bc.BOLD}{bc.OKBLUE}{pr_data['ref']}{bc.END} "
+                f"{bc.OKBLUE}{pr_data['title']}{bc.ENDC}:"
+            )
+        # Blacklisted PRs
+        if data["pull_requests"]["blacklisted"]:
+            self._print("\t⛔ Blacklisted PRs:")
+        for pr_data in data["pull_requests"]["blacklisted"].values():
+            self._print(
+                f"\t- {bc.BOLD}{bc.WARNING}{pr_data['ref']}{bc.END} "
+                f"{bc.WARNING}{pr_data['title']}{bc.ENDC}:"
+            )
+        # if data["pull_requests"]:
+        #     self._print()
+        return wip
+
+    def _push_and_open_pr(self):
         session = self._init_session()
         data = session.get_data()
         processed_prs = data["pull_requests"]["ported"]
@@ -304,21 +345,19 @@ class PortAddonPullRequest(Output):
         if not processed_prs and not blacklisted_prs:
             self._print("ℹ️  Nothing has been ported or blacklisted.")
             return False
-        pr_data = self._prepare_pull_request_data(
-            dest_branch, processed_prs, blacklisted_prs
-        )
+        pr_data = self._prepare_pull_request_data(processed_prs, blacklisted_prs)
         # Try to push and open PR against remote repository
-        is_pushed = self._push_branch_to_remote(dest_branch)
+        is_pushed = self._push_branch_to_remote()
         if not is_pushed:
             self._print(
-                f"\nℹ️  Branch {bc.BOLD}{dest_branch.name}{bc.END} couldn't "
+                f"\nℹ️  Branch {bc.BOLD}{self.app.destination.branch}{bc.END} couldn't "
                 "be pushed (no remote defined)"
             )
             self._print_tips(pr_data)
             return False
         if not self.open_pr:
             self._print(
-                f"\nℹ️  PR based on {bc.BOLD}{dest_branch.name}{bc.END} couldn't "
+                f"\nℹ️  PR based on {bc.BOLD}{self.app.destination.branch}{bc.END} couldn't "
                 "be open (no remote defined)"
             )
             self._print_tips(pr_data)
@@ -327,7 +366,7 @@ class PortAddonPullRequest(Output):
         if pr_url:
             self._print(f"Existing PR has been refreshed => {pr_url}")
         else:
-            self._create_pull_request(dest_branch, pr_data, processed_prs)
+            self._create_pull_request(pr_data, processed_prs)
 
     def _print_tips(self, pr_data):
         self._print("Here is the default PR content that would have been used:")
@@ -448,23 +487,24 @@ class PortAddonPullRequest(Output):
                 )
         return False, ""
 
-    def _push_branch_to_remote(self, branch):
+    def _push_branch_to_remote(self):
         """Force push the local branch to remote destination fork."""
         if not self.push_branch:
             return False
         confirm = (
-            f"Push branch '{bc.BOLD}{branch.name}{bc.END}' "
+            f"Push branch '{bc.BOLD}{self.app.destination.branch}{bc.END}' "
             f"to remote '{bc.BOLD}{self.app.destination.remote}{bc.END}'?"
         )
         if click.confirm(confirm):
-            branch.repo.git.push(
-                self.app.destination.remote, branch.name, "--force-with-lease"
+            self.app.repo.git.push(
+                self.app.destination.remote,
+                self.app.destination.branch,
+                "--force-with-lease",
             )
-            branch.remote = self.app.destination.remote
             return True
         return False
 
-    def _prepare_pull_request_data(self, pr_branch, processed_prs, blacklisted_prs):
+    def _prepare_pull_request_data(self, processed_prs, blacklisted_prs):
         # Adapt the content depending on the number of ported PRs
         title = body = ""
         if len(processed_prs) > 1:
@@ -505,7 +545,7 @@ class PortAddonPullRequest(Output):
         return {
             "draft": True,
             "title": title,
-            "head": f"{self.app.destination.org}:{pr_branch.name}",
+            "head": f"{self.app.destination.org}:{self.app.destination.branch}",
             "base": self.app.to_branch.name,
             "body": body,
         }
@@ -523,7 +563,7 @@ class PortAddonPullRequest(Output):
         if response["items"]:
             return response["items"][0]["html_url"]
 
-    def _create_pull_request(self, pr_branch, pr_data, processed_prs):
+    def _create_pull_request(self, pr_data, processed_prs):
         if len(processed_prs) > 1:
             self._print(
                 "PR(s) ported locally:",
@@ -532,7 +572,7 @@ class PortAddonPullRequest(Output):
                 ),
             )
         if click.confirm(
-            f"Create a draft PR from '{bc.BOLD}{pr_branch.name}{bc.END}' "
+            f"Create a draft PR from '{bc.BOLD}{self.app.destination.branch}{bc.END}' "
             f"to '{bc.BOLD}{self.app.to_branch.name}{bc.END}' "
             f"against {bc.BOLD}{self.app.upstream_org}/{self.app.repo_name}{bc.END}?"
         ):
@@ -553,7 +593,7 @@ class PortAddonPullRequest(Output):
             repo_name=self.app.repo_name,
             to_branch=self.app.to_branch.name,
             to_org=self.app.destination.org,
-            pr_branch=pr_branch.name,
+            pr_branch=self.app.destination.branch,
             title=pr_title_encoded,
         )
         self._print(
@@ -636,7 +676,7 @@ class BranchesDiff(Output):
         )
 
     def print_diff(self, verbose=False):
-        lines_to_print = [""]
+        lines_to_print = []
         fake_pr = None
         i = 0
         for i, pr in enumerate(self.commits_diff, 1):
@@ -686,6 +726,8 @@ class BranchesDiff(Output):
                 f"{self.app.from_branch.ref()} to {self.app.to_branch.ref()}"
             )
         lines_to_print.insert(0, message)
+        if self.commits_diff:
+            lines_to_print.insert(1, "")
         self._print("\n".join(lines_to_print))
 
     def get_commits_diff(self):
