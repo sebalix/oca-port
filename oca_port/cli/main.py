@@ -33,6 +33,10 @@ on the relevant upstream organization:
 
     $ oca-port 14.0 16.0 shopfloor --upstream-org camptocamp
 
+To rename a module during its migration (or compare commits of a renamed module):
+
+    $ oca-port origin/16.0 origin/18.0 stock_packaging_calculator product_packaging_calculator
+
 Migration of addon
 ------------------
 
@@ -63,6 +67,7 @@ from ..utils.misc import bcolors as bc
 @click.argument("source", required=True)
 @click.argument("target", required=True)
 @click.argument("addon_path", required=True)
+@click.argument("target_addon_path", required=False)
 @click.option(
     "--destination",
     help=("Git reference where work will be pushed, e.g. 'camptocamp/16.0-dev'."),
@@ -106,6 +111,7 @@ from ..utils.misc import bcolors as bc
 )
 def main(
     addon_path: str,
+    target_addon_path: str,
     source: str,
     target: str,
     destination: str,
@@ -140,6 +146,7 @@ def main(
     try:
         app = App(
             addon_path=addon_path,
+            target_addon_path=target_addon_path,
             source=source,
             target=target,
             destination=destination,
