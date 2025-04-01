@@ -116,17 +116,9 @@ class MigrateAddon(Output):
                 raise SystemExit(100)
             return True, None
         # Start the migration
-        confirm = (
-            f"Migrate {bc.BOLD}{self.app.source.addon}{bc.END} "
-            f"from {bc.BOLD}{self.app.source_version}{bc.END} "
-            f"to {bc.BOLD}{self.app.target_version}{bc.END}?"
-        )
-        if not click.confirm(confirm):
-            self.app.storage.blacklist_addon(confirm=True)
-            if not self.app.storage.dirty:
-                return False, None
-        if self.app.repo.untracked_files:
-            raise click.ClickException("Untracked files detected, abort")
+        if self.app.repo.is_dirty():
+            # Same error message than git
+            raise ValueError("You have unstaged changes. Please commit or stash them.")
         self._checkout_base_branch()
         if self.app.target.addon_path.exists():
             # Corner case: target addon already exists as local folder, abort
@@ -135,6 +127,19 @@ class MigrateAddon(Output):
                 "(uncommitted) already exists, aborting."
             )
             return False, None
+        confirm = (
+            f"Migrate {bc.BOLD}{self.app.source.addon}{bc.END} "
+            f"from {bc.BOLD}{self.app.source_version}{bc.END} "
+            f"to {bc.BOLD}{self.app.target_version}{bc.END}"
+        )
+        if self.app.source.addon_path != self.app.target.addon_path:
+            confirm += f" and rename it to {bc.BOLD}{self.app.target.addon}{bc.END}?"
+        else:
+            confirm += "?"
+        if not click.confirm(confirm):
+            self.app.storage.blacklist_addon(confirm=True)
+            if not self.app.storage.dirty:
+                return False, None
         adapted = False
         if self._create_mig_branch():
             # Case where the addon shouldn't be ported (blacklisted)
@@ -148,20 +153,7 @@ class MigrateAddon(Output):
                 self._apply_patches(patches_dir)
             # Handle module renaming
             if self.app.source.addon_path != self.app.target.addon_path:
-                self.app.repo.git.mv(
-                    self.app.source.addon_path, self.app.target.addon_path
-                )
-                update_terms_in_directory(
-                    self.app.target.addon_path,
-                    self.app.source.addon,
-                    self.app.target.addon,
-                )
-                self.app.repo.git.add(self.app.target.addon_path)
-                self.app.repo.git.commit(
-                    "-m",
-                    f"[MOV] Rename {self.app.source.addon} to {self.app.target.addon}",
-                    "--no-verify",
-                )
+                self._rename_addon()
             # Adapt code thanks to odoo-module-migrator (if installed)
             try:
                 metadata.metadata("odoo-module-migrator")
@@ -297,6 +289,20 @@ class MigrateAddon(Output):
         print(
             f"\t\tCommits history of {bc.BOLD}{self.app.source.addon}{bc.END} "
             f"has been migrated."
+        )
+
+    def _rename_addon(self):
+        self.app.repo.git.mv(self.app.source.addon_path, self.app.target.addon_path)
+        update_terms_in_directory(
+            self.app.target.addon_path,
+            self.app.source.addon,
+            self.app.target.addon,
+        )
+        self.app.repo.git.add(self.app.target.addon_path)
+        self.app.repo.git.commit(
+            "-m",
+            f"[MOV] Rename {self.app.source.addon} to {self.app.target.addon}",
+            "--no-verify",
         )
 
     def _print_tips(self, blacklisted=False, adapted=False):
